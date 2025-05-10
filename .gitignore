@@ -1,3 +1,6 @@
+__pychache__
+.venv
+requirements.txt
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
@@ -20,6 +23,7 @@ parts/
 sdist/
 var/
 wheels/
+media/
 share/python-wheels/
 *.egg-info/
 .installed.cfg
@@ -166,9 +170,10 @@ cython_debug/
 #  and can be added to the global gitignore or merged into this file.  For a more nuclear
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
-
-# Ruff stuff:
-.ruff_cache/
-
+media/
 # PyPI configuration file
 .pypirc
+#training CNN
+*.h5
+*.keras
+*.pth
