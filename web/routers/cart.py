@@ -8,10 +8,8 @@ from schemas.cart import Cart
 from schemas.cart_item import CartItem, CartItemCreate, CartItemUpdate, CartItemRequest, CartItemUpdateRequest
 from schemas.medicines import Medicine as MedicineSchema
 from schemas.orders import Order
-from controller import cart as cart_controller
-from controller import cart_item as cart_items_controller
-from controller import medicines as medicine_controller
-from controller import orders as order_controller
+from Service import cart as cart_controller, cart_item as cart_items_controller
+from Service import orders as order_controller
 
 router = APIRouter(
     prefix="/cart",

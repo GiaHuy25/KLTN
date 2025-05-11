@@ -1,14 +1,14 @@
 import os
 import torch
+import torch.nn as nn
 import logging
-from torchvision.models import efficientnet_b0
+from torchvision import models, transforms
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import Dict
 import numpy as np
 import cv2
 from PIL import Image
-from torchvision import transforms
 from dotenv import load_dotenv
 
 from config.db import get_db
@@ -23,10 +23,17 @@ MODEL_PATH = os.getenv("MODEL_PATH")
 logger = logging.getLogger(__name__)
 
 CLASS_NAMES = [
-    'PHYTOPHTHORA_PALMIVORA', 'ALLOCARIDARA_ATTACK', 'LEAF_BLIGHT',
-    'LEAF_RHIZOCTONIA', 'PHOMOPSIS_LEAF_SPOT', 'HEALTHY_LEAF',
-    'PHYTOPHTHORA_LEAF_BLIGHT', 'LEAF_SPOT', 'LEAF_ALGAL',
-    'LEAF_COLLETOTRICHUM', 'ALGAL_LEAF_SPOT'
+    'ALGAL_LEAF_SPOT',
+    'ALLOCARIDARA_ATTACK',
+    'HEALTHY_LEAF',
+    'LEAF_ALGAL',
+    'LEAF_BLIGHT',
+    'LEAF_COLLETOTRICHUM',
+    'LEAF_RHIZOCTONIA',
+    'LEAF_SPOT',
+    'PHOMOPSIS_LEAF_SPOT',
+    'PHYTOPHTHORA_LEAF_BLIGHT',
+    'PHYTOPHTHORA_PALMIVORA'
 ]
 CONFIDENCE_THRESHOLD = 0.05
 
@@ -34,15 +41,23 @@ CONFIDENCE_THRESHOLD = 0.05
 model = None
 
 # Custom EfficientNet model class
-class CustomEfficientNet(torch.nn.Module):
+class CustomEfficientNet(nn.Module):
     def __init__(self, num_classes=11):
         super(CustomEfficientNet, self).__init__()
-        self.model = efficientnet_b0(weights=None)
-        in_features = self.model.classifier[1].in_features
-        self.model.classifier = torch.nn.Sequential(
-            torch.nn.Linear(in_features, 512),
-            torch.nn.ReLU(),
-            torch.nn.Linear(512, num_classes)
+        self.model = models.efficientnet_b0(pretrained=True)
+
+        # Đóng băng các lớp đầu tiên
+        for name, param in self.model.named_parameters():
+            if 'features.0' in name or 'features.1' in name or 'features.2' in name:
+                param.requires_grad = False
+        
+        # Thay thế phần classifier
+        self.model.classifier = nn.Sequential(
+            nn.Dropout(p=0.3, inplace=True),
+            nn.Linear(in_features=1280, out_features=512),
+            nn.ReLU(),
+            nn.Dropout(p=0.2),
+            nn.Linear(in_features=512, out_features=num_classes)
         )
 
     def forward(self, x):
@@ -54,13 +69,12 @@ def preprocess_image(img: np.ndarray) -> torch.Tensor:
     img = Image.fromarray(img)  
 
     transform = transforms.Compose([
-        transforms.Resize((224, 224)),       
-        transforms.ToTensor(),              
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  
+        transforms.Resize((256, 256)),       # Resize theo file train
+        transforms.ToTensor(),               # Chuyển đổi sang tensor
+        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # Chuẩn hóa
     ])
     tensor = transform(img).unsqueeze(0)        
     return tensor
-
 
 # Load model only once
 def load_model():
@@ -70,16 +84,18 @@ def load_model():
             raise RuntimeError(f"Model file not found at {MODEL_PATH}")
 
         # Tạo một mô hình mới từ CustomEfficientNet
-        model_instance = CustomEfficientNet()
+        model_instance = CustomEfficientNet(num_classes=len(CLASS_NAMES))
 
-        # Load state_dict từ tệp đã lưu
+        # Load mô hình từ file
         checkpoint = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
 
-        # Nếu checkpoint là OrderedDict, tải vào model
-        if isinstance(checkpoint, dict):
-            model_instance.load_state_dict(checkpoint, strict=False)
+        # Nếu checkpoint là mô hình hoàn chỉnh
+        if isinstance(checkpoint, CustomEfficientNet):
+            model_instance = checkpoint
+        elif isinstance(checkpoint, dict) and "model" in checkpoint:
+            model_instance.load_state_dict(checkpoint["model"], strict=False)
         else:
-            raise RuntimeError("Loaded model is not a valid state_dict.")
+            model_instance.load_state_dict(checkpoint, strict=False)
 
         # Đặt mô hình ở chế độ eval
         model_instance.eval()

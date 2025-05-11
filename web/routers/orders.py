@@ -6,9 +6,9 @@ from models.models import User as UserModel, Orders as OrderModel, OrderDetails 
 from schemas.orders import Order, OrderCreate, OrderUpdate
 from schemas.order_details import OrderDetail
 from schemas.medicines import Medicine as MedicineSchema
-from controller import orders as order_controller
-from controller import order_details as order_detail_controller
-from controller import medicines as medicine_controller
+from Service import orders as order_controller
+from Service import order_details as order_detail_controller
+from Service import medicines as medicine_controller
 
 router = APIRouter(
     prefix="/orders",

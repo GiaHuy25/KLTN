@@ -28,19 +28,11 @@ class Disease(Base):
     symptoms = Column(Text, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
-# Medicine Category Model
-class MedicineCategory(Base):
-    __tablename__ = 'medicine_categories'
-    category_id = Column(Integer, primary_key=True, index=True)
-    name = Column(String(100), nullable=False)
-    description = Column(Text, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
 
 # Medicine Model
 class Medicines(Base):
     __tablename__ = 'medicines'
     medicine_id = Column(Integer, primary_key=True, index=True)
-    category_id = Column(Integer, ForeignKey('medicine_categories.category_id'), nullable=True)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
     how_to_use = Column(Text, nullable=True)

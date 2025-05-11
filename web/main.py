@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config.db import engine, Base
-from routers import diseases, medicine_categories, medicines, users, cart, orders
+from routers import diseases, medicines, users, cart, orders
 
 app = FastAPI()
 
@@ -29,7 +29,6 @@ Base.metadata.create_all(bind=engine)
 
 # Đăng ký router với prefix và tags
 app.include_router(users.router, tags=["Users"])
-app.include_router(medicine_categories.router, tags=["Medicine Categories"])
 app.include_router(medicines.router, tags=["Medicines"])
 app.include_router(diseases.router, tags=["Diseases"])
 app.include_router(cart.router, tags=["Carts"])

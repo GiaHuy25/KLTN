@@ -7,11 +7,10 @@ import pandas as pd
 from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File
 from sqlalchemy.orm import Session
 from typing import List
-import torch
 from torchvision import transforms
-from models.models import Medicines as MedicineModel
-from schemas.medicines import MedicineCreate, MedicineUpdate, Medicine
-from controller.medicines import create_medicine, get_medicines, get_medicine_by_id, update_medicine, delete_medicine
+from models.models import Medicines
+from schemas.medicines import MedicineCreate, MedicineUpdate, Medicine, PaginatedMedicineResponse
+from Service.medicines import create_medicine, get_medicine_by_id, update_medicine, delete_medicine, get_paginated_medicines
 from config.db import get_db
 from utils.paginator import paginate_dataframe
 
@@ -35,36 +34,9 @@ def create_medicine_endpoint(
         raise HTTPException(status_code=500, detail=f"Lỗi khi tạo thuốc: {str(e)}")
 
 
-@router.get("/", response_model=List[Medicine], summary="Lấy danh sách thuốc với hình ảnh dạng Base64")
+@router.get("/", response_model=PaginatedMedicineResponse, summary="Lấy danh sách thuốc với hình ảnh dạng Base64")
 def get_medicines_endpoint(page: int = 1, per_page: int = 10, db: Session = Depends(get_db)):
-    """
-    Lấy danh sách thuốc có phân trang, bao gồm cả hình ảnh dưới dạng Base64.
-    """
-    try:
-        medicines = get_medicines(db=db, skip=(page - 1) * per_page, limit=per_page)
-        medicines_data = []
-        for med in medicines:
-            med_dict = med.__dict__.copy()
-            image_path = med.image_url if med.image_url else None
-            if image_path and os.path.isfile(image_path):
-                with open(image_path, "rb") as image_file:
-                    med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
-            else:
-                med_dict["image_base64"] = None
-            medicines_data.append(med_dict)
-
-        df = pd.DataFrame(medicines_data)
-        paginated_result = paginate_dataframe(df, page=page, per_page=per_page)
-
-        return {
-            "data": paginated_result["data"],
-            "total_records": paginated_result["total_record"],
-            "page": paginated_result["page"],
-            "per_page": paginated_result["per_page"]
-        }
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Lỗi khi lấy danh sách thuốc: {str(e)}")
-
+    return get_paginated_medicines(db, page, per_page)
 
 @router.get("/{medicine_id}", response_model=Medicine, summary="Lấy thông tin thuốc theo ID")
 def get_medicine_endpoint(medicine_id: int, db: Session = Depends(get_db)):
