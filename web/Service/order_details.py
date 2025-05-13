@@ -1,11 +1,11 @@
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from fastapi import HTTPException
-from models.models import OrderDetails, Medicines
+from models.models import  Medicines, OrderItems
 from schemas.order_details import OrderDetailCreate, OrderDetailUpdate
 
 
-def create_order_detail(db: Session, order_detail_data: OrderDetailCreate) -> OrderDetails:
+def create_order_detail(db: Session, order_detail_data: OrderDetailCreate) -> OrderItems:
     try:
         medicine = db.query(Medicines).filter(Medicines.id == order_detail_data.medicine_id).first()
         if not medicine:
@@ -14,7 +14,7 @@ def create_order_detail(db: Session, order_detail_data: OrderDetailCreate) -> Or
         if order_detail_data.quantity <= 0:
             raise HTTPException(status_code=400, detail="Quantity must be greater than 0")
         
-        db_order_detail = OrderDetails(
+        db_order_detail = OrderItems(
             order_id=order_detail_data.order_id,
             medicine_id=order_detail_data.medicine_id,
             quantity=order_detail_data.quantity,
@@ -29,12 +29,12 @@ def create_order_detail(db: Session, order_detail_data: OrderDetailCreate) -> Or
         raise HTTPException(status_code=500, detail=f"Error creating order detail: {str(e)}")
 
 
-def get_order_details_by_order_id(db: Session, order_id: int) -> List[OrderDetails]:
-    return db.query(OrderDetails).filter(OrderDetails.order_id == order_id).all()
+def get_order_details_by_order_id(db: Session, order_id: int) -> List[OrderItems]:
+    return db.query(OrderItems).filter(OrderItems.order_id == order_id).all()
 
 
-def update_order_detail(db: Session, order_detail_id: int, order_detail_data: OrderDetailUpdate) -> OrderDetails:
-    db_order_detail = db.query(OrderDetails).filter(OrderDetails.id == order_detail_id).first()
+def update_order_detail(db: Session, order_detail_id: int, order_detail_data: OrderDetailUpdate) -> OrderItems:
+    db_order_detail = db.query(OrderItems).filter(OrderItems.item_id == order_detail_id).first()
     if not db_order_detail:
         raise HTTPException(status_code=404, detail="Order detail not found")
     
@@ -52,7 +52,7 @@ def update_order_detail(db: Session, order_detail_id: int, order_detail_data: Or
 
 
 def delete_order_detail(db: Session, order_detail_id: int) -> None:
-    db_order_detail = db.query(OrderDetails).filter(OrderDetails.id == order_detail_id).first()
+    db_order_detail = db.query(OrderItems).filter(OrderItems.item_id == order_detail_id).first()
     if not db_order_detail:
         raise HTTPException(status_code=404, detail="Order detail not found")
     

@@ -10,7 +10,6 @@ class MedicineBase(BaseModel):
     price: Decimal = Field(..., gt=0, decimal_places=2, description="Giá của thuốc")
     discounted_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2, description="Giá đã giảm (nếu có)")
     stock: int = Field(0, ge=0, description="Số lượng tồn kho")
-    disease_id: Optional[int] = Field(None, description="ID của bệnh liên quan đến thuốc")
     image_url: Optional[str] = Field(None, description="URL của hình ảnh thuốc")
     image_base64: Optional[str] = Field(None, description="Hình ảnh thuốc dưới dạng Base64")
     is_freeship: bool = Field(False, description="Thuốc có miễn phí vận chuyển hay không")

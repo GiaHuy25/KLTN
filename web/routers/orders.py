@@ -1,8 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Dict, Any
+from jose import JWTError, jwt
+from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+
 from config.db import get_db
-from models.models import User as UserModel, Orders as OrderModel, OrderDetails as OrderDetailModel, Medicines as MedicineModel
+from models.models import User as UserModel,  Medicines as MedicineModel
 from schemas.orders import Order, OrderCreate, OrderUpdate
 from schemas.order_details import OrderDetail
 from schemas.medicines import Medicine as MedicineSchema
@@ -15,14 +18,32 @@ router = APIRouter(
     tags=["Orders"],
 )
 
-async def get_current_user(db: Session = Depends(get_db)) -> UserModel:
-    user = db.query(UserModel).filter(UserModel.user_id == 1).first()
+# Sử dụng HTTPBearer cho xác thực token
+security = HTTPBearer()
+
+# Cấu hình JWT
+SECRET_KEY = "your-secret-key"  # Thay bằng secret key thực tế, phải khớp với user_router.py
+ALGORITHM = "HS256"
+
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> UserModel:
+    """
+    Xác thực token và lấy thông tin user hiện tại.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.query(UserModel).filter(UserModel.email == email).first()
     if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={"WWW-Authenticate": "Bearer"},
-        )
+        raise credentials_exception
     return user
 
 @router.get("/", response_model=List[Dict[str, Any]], summary="Get user's orders")
@@ -43,9 +64,9 @@ async def get_orders(
                 medicine = medicine_controller.get_medicine_by_id(db, medicine_id=detail.medicine_id)
                 if medicine:
                     details_with_medicines.append({
-                        "detail_id": detail.id,
+                        "detail_id": detail.item_id,
                         "quantity": detail.quantity,
-                        "unit_price": float(detail.unit_price),
+                        "unit_price": float(detail.price),
                         "medicine": MedicineSchema.from_orm(medicine)
                     })
             result.append({
@@ -54,6 +75,7 @@ async def get_orders(
                 "created_at": order.created_at,
                 "total_price": float(order.total_price),
                 "status": order.status,
+                "Shipping address": order.shipping_address,
                 "details": details_with_medicines
             })
         return result
@@ -79,9 +101,9 @@ async def get_order(
         medicine = medicine_controller.get_medicine_by_id(db, medicine_id=detail.medicine_id)
         if medicine:
             details_with_medicines.append({
-                "detail_id": detail.id,
+                "detail_id": detail.item_id,
                 "quantity": detail.quantity,
-                "unit_price": float(detail.unit_price),
+                "unit_price": float(detail.price),
                 "medicine": MedicineSchema.from_orm(medicine)
             })
 
@@ -91,6 +113,7 @@ async def get_order(
         "created_at": order.created_at,
         "total_price": float(order.total_price),
         "status": order.status,
+        "Shipping address": order.shipping_address,
         "details": details_with_medicines
     }
 
@@ -100,11 +123,10 @@ async def create_order(
     db: Session = Depends(get_db),
     current_user: UserModel = Depends(get_current_user)
 ):
-    """
-    Tạo mới đơn hàng từ giỏ hàng của người dùng.
-    """
+    if current_user.user_id != order_data.user_id:
+        raise HTTPException(status_code=403, detail="Not authorized to create order for this user")
     try:
-        new_order = order_controller.create_order(db, user_id=current_user.user_id, cart_id=order_data.cart_id)
+        new_order = order_controller.create_order(db, order_data=order_data)
         return Order.from_orm(new_order)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error creating order: {str(e)}")

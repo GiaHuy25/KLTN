@@ -5,7 +5,7 @@ from datetime import datetime
 
 class OrderDetailBase(BaseModel):
     order_id: Optional[int] = None
-    product_id: Optional[int] = None
+    medicine_id: Optional[int] = None
     quantity: int = Field(..., gt=0, description="Số lượng sản phẩm")
     unit_price: Decimal = Field(..., gt=0, decimal_places=2, description="Đơn giá sản phẩm")
 
