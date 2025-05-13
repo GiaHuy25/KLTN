@@ -1,19 +1,19 @@
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional,Dict, Any
 from fastapi import HTTPException, UploadFile
 from schemas.medicines import MedicineCreate, MedicineUpdate, PaginatedMedicineResponse
-from models.models import Medicines
+from models.models import Medicines, Disease
 import os
 import base64
 
 # Hàm xử lý logic lấy danh sách thuốc với phân trang và ảnh Base64
-def get_paginated_medicines(db: Session, page: int = 1, per_page: int = 10):
+def get_paginated_medicines(db: Session, page: int = 1, per_page: int = 10) -> Dict[str, Any]:
     try:
         # Tính vị trí bắt đầu (skip)
         skip = (page - 1) * per_page
         
         # Lấy danh sách thuốc từ cơ sở dữ liệu
-        medicines = get_medicines(db, skip=skip, limit=per_page)
+        medicines = db.query(Medicines).offset(skip).limit(per_page).all()
         
         # Tính tổng số bản ghi
         total_records = db.query(Medicines).count()
@@ -22,12 +22,30 @@ def get_paginated_medicines(db: Session, page: int = 1, per_page: int = 10):
         medicines_data = []
         for med in medicines:
             med_dict = med.__dict__.copy()
-            image_path = med.image_url if med.image_url else None
-            if image_path and os.path.isfile(image_path):
-                with open(image_path, "rb") as image_file:
-                    med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+            
+            # Lấy tên bệnh (folder_name) từ mối quan hệ Disease qua DiseaseMedicine
+            disease_name = None
+            if med.disease_medicines:
+                disease = db.query(Disease).filter(Disease.disease_id == med.disease_medicines[0].disease_id).first()
+                if disease:
+                    disease_name = disease.name.replace(" ", "_").upper()  # Chuẩn hóa tên bệnh thành dạng ALGAL_LEAF_SPOT
+            BASE_MEDIA_PATH = "media/medicines/"
+            if disease_name and os.path.isdir(os.path.join(BASE_MEDIA_PATH, disease_name)):
+                image_path_jpg = os.path.join(BASE_MEDIA_PATH, disease_name, f"{med.image_url}.jpg")
+                image_path_png = os.path.join(BASE_MEDIA_PATH, disease_name, f"{med.image_url}.png")
+
+                # Kiểm tra file ảnh .jpg hoặc .png
+                if os.path.isfile(image_path_jpg):
+                    with open(image_path_jpg, "rb") as image_file:
+                        med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+                elif os.path.isfile(image_path_png):
+                    with open(image_path_png, "rb") as image_file:
+                        med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+                else:
+                    med_dict["image_base64"] = None
             else:
                 med_dict["image_base64"] = None
+            
             medicines_data.append(med_dict)
         
         # Trả về kết quả phân trang
@@ -35,7 +53,7 @@ def get_paginated_medicines(db: Session, page: int = 1, per_page: int = 10):
             "data": medicines_data,
             "total_records": total_records,
             "page": page,
-            "per_page": per_page  # Sửa từ "_per_page" thành "per_page"
+            "per_page": per_page
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Lỗi khi lấy danh sách thuốc: {str(e)}")
