@@ -10,7 +10,7 @@ import numpy as np
 import cv2
 from PIL import Image
 from dotenv import load_dotenv
-
+import base64
 from config.db import get_db
 from models.models import Disease as DiseaseModel, Medicines as MedicineModel, DiseaseMedicine
 
@@ -154,8 +154,13 @@ async def predict_disease(
             .all()
         )
 
-        medicines_data = [
-            {
+        # Process medicines data with Base64 images
+        medicines_data = []
+        BASE_MEDIA_PATH = "media/medicines/"
+        disease_folder = disease.name.replace(" ", "_").upper()  # Standardize disease name to ALGAL_LEAF_SPOT format
+
+        for med in medicines:
+            med_dict = {
                 "id": med.medicine_id,
                 "name": med.name,
                 "description": med.description,
@@ -164,8 +169,25 @@ async def predict_disease(
                 "stock": med.stock,
                 "image_url": med.image_url
             }
-            for med in medicines
-        ]
+
+            # Add Base64 image if available
+            if os.path.isdir(os.path.join(BASE_MEDIA_PATH, disease_folder)):
+                image_path_jpg = os.path.join(BASE_MEDIA_PATH, disease_folder, f"{med.image_url}.jpg")
+                image_path_png = os.path.join(BASE_MEDIA_PATH, disease_folder, f"{med.image_url}.png")
+
+                # Check for .jpg or .png file
+                if os.path.isfile(image_path_jpg):
+                    with open(image_path_jpg, "rb") as image_file:
+                        med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+                elif os.path.isfile(image_path_png):
+                    with open(image_path_png, "rb") as image_file:
+                        med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+                else:
+                    med_dict["image_base64"] = None
+            else:
+                med_dict["image_base64"] = None
+
+            medicines_data.append(med_dict)
 
         return {
             "disease_name": disease.name,
@@ -180,4 +202,4 @@ async def predict_disease(
         raise e
     except Exception as e:
         logger.error(f"Unexpected error in /predict: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Server error")
+        raise HTTPException(status_code=500, detail="Internal server error")
