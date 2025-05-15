@@ -66,4 +66,4 @@ def authenticate_user(db: Session, email: str, password: str):
         data={"sub": db_user.email},
         expires_delta=timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     )
-    return {"user": db_user, "access_token": access_token, "token_type": "bearer"}
+    return {"user": db_user, "user_id": db_user.user_id, "access_token": access_token, "token_type": "bearer"}

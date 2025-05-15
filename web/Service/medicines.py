@@ -2,7 +2,7 @@ from sqlalchemy.orm import Session
 from typing import List, Optional,Dict, Any
 from fastapi import HTTPException, UploadFile
 from schemas.medicines import MedicineCreate, MedicineUpdate, PaginatedMedicineResponse
-from models.models import Medicines, Disease
+from models.models import Medicines, Disease, DiseaseMedicine
 import os
 import base64
 
@@ -113,8 +113,47 @@ def get_medicines(db: Session, skip: int = 0, limit: int = 100) -> List[Medicine
     return db.query(Medicines).offset(skip).limit(limit).all()
 
 # Hàm lấy thuốc theo ID
-def get_medicine_by_id(db: Session, medicine_id: int) -> Optional[Medicines]:
-    return db.query(Medicines).filter(Medicines.medicine_id == medicine_id).first()
+def get_medicine_by_id(db: Session, medicine_id: int) -> Optional[Dict[str, Any]]:
+    try:
+        # Lấy thông tin thuốc từ cơ sở dữ liệu
+        medicine = db.query(Medicines).filter(Medicines.medicine_id == medicine_id).first()
+        
+        if not medicine:
+            return None
+        
+        # Chuyển thông tin thuốc thành dictionary
+        med_dict = medicine.__dict__.copy()
+        
+        # Lấy tên bệnh từ mối quan hệ Disease qua DiseaseMedicine
+        disease_name = None
+        disease_medicine = db.query(DiseaseMedicine).filter(DiseaseMedicine.medicine_id == medicine_id).first()
+        if disease_medicine:
+            disease = db.query(Disease).filter(Disease.disease_id == disease_medicine.disease_id).first()
+            if disease:
+                disease_name = disease.name.replace(" ", "_").upper()  # Chuẩn hóa: ALGAL_LEAF_SPOT
+        
+        # Xử lý hình ảnh Base64
+        BASE_MEDIA_PATH = "media/medicines/"
+        if disease_name and os.path.isdir(os.path.join(BASE_MEDIA_PATH, disease_name)):
+            image_path_jpg = os.path.join(BASE_MEDIA_PATH, disease_name, f"{medicine.image_url}.jpg")
+            image_path_png = os.path.join(BASE_MEDIA_PATH, disease_name, f"{medicine.image_url}.png")
+            
+            # Kiểm tra file .jpg hoặc .png
+            if os.path.isfile(image_path_jpg):
+                with open(image_path_jpg, "rb") as image_file:
+                    med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+            elif os.path.isfile(image_path_png):
+                with open(image_path_png, "rb") as image_file:
+                    med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+            else:
+                med_dict["image_base64"] = None
+        else:
+            med_dict["image_base64"] = None
+        
+        return med_dict
+    
+    except Exception as e:
+        raise Exception(f"Error retrieving medicine: {str(e)}")
 
 # Hàm cập nhật thuốc
 def update_medicine(db: Session, medicine_id: int, medicine_data: MedicineUpdate) -> Optional[Medicines]:
