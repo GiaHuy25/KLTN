@@ -5,7 +5,9 @@ from schemas.medicines import MedicineCreate, MedicineUpdate, PaginatedMedicineR
 from models.models import Medicines, Disease, DiseaseMedicine
 import os
 import base64
+import logging
 
+logger = logging.getLogger(__name__)
 # Hàm xử lý logic lấy danh sách thuốc với phân trang và ảnh Base64
 def get_paginated_medicines(db: Session, page: int = 1, per_page: int = 10) -> Dict[str, Any]:
     try:
@@ -117,13 +119,22 @@ def get_medicine_by_id(db: Session, medicine_id: int) -> Optional[Dict[str, Any]
     try:
         # Lấy thông tin thuốc từ cơ sở dữ liệu
         medicine = db.query(Medicines).filter(Medicines.medicine_id == medicine_id).first()
-        
         if not medicine:
+            logger.info(f"Medicine with ID {medicine_id} not found")
             return None
-        
+
         # Chuyển thông tin thuốc thành dictionary
-        med_dict = medicine.__dict__.copy()
-        
+        med_dict = {
+            "medicine_id": medicine.medicine_id,
+            "name": medicine.name,
+            "description": medicine.description,
+            "price": float(medicine.price) if medicine.price is not None else None,
+            "stock": medicine.stock,
+            "image_url": medicine.image_url,
+            "how_to_use": medicine.how_to_use,
+            "created_at": medicine.created_at
+        }
+
         # Lấy tên bệnh từ mối quan hệ Disease qua DiseaseMedicine
         disease_name = None
         disease_medicine = db.query(DiseaseMedicine).filter(DiseaseMedicine.medicine_id == medicine_id).first()
@@ -131,55 +142,68 @@ def get_medicine_by_id(db: Session, medicine_id: int) -> Optional[Dict[str, Any]
             disease = db.query(Disease).filter(Disease.disease_id == disease_medicine.disease_id).first()
             if disease:
                 disease_name = disease.name.replace(" ", "_").upper()  # Chuẩn hóa: ALGAL_LEAF_SPOT
-        
+                med_dict["disease_name"] = disease_name
+
         # Xử lý hình ảnh Base64
         BASE_MEDIA_PATH = "media/medicines/"
+        med_dict["image_base64"] = None
         if disease_name and os.path.isdir(os.path.join(BASE_MEDIA_PATH, disease_name)):
-            image_path_jpg = os.path.join(BASE_MEDIA_PATH, disease_name, f"{medicine.image_url}.jpg")
-            image_path_png = os.path.join(BASE_MEDIA_PATH, disease_name, f"{medicine.image_url}.png")
-            
-            # Kiểm tra file .jpg hoặc .png
-            if os.path.isfile(image_path_jpg):
-                with open(image_path_jpg, "rb") as image_file:
-                    med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
-            elif os.path.isfile(image_path_png):
-                with open(image_path_png, "rb") as image_file:
-                    med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
-            else:
-                med_dict["image_base64"] = None
+            for ext in ["jpg", "png"]:
+                image_path = os.path.join(BASE_MEDIA_PATH, disease_name, f"{medicine.image_url}.{ext}")
+                if os.path.isfile(image_path):
+                    try:
+                        with open(image_path, "rb") as image_file:
+                            med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+                        break
+                    except Exception as e:
+                        logger.error(f"Error encoding image for medicine {medicine_id}: {str(e)}")
         else:
-            med_dict["image_base64"] = None
-        
+            logger.warning(f"No image directory found for disease {disease_name} or disease_name is None")
+
         return med_dict
-    
     except Exception as e:
+        logger.error(f"Error retrieving medicine {medicine_id}: {str(e)}", exc_info=True)
         raise Exception(f"Error retrieving medicine: {str(e)}")
 
 # Hàm cập nhật thuốc
 def update_medicine(db: Session, medicine_id: int, medicine_data: MedicineUpdate) -> Optional[Medicines]:
-    db_medicine = get_medicine_by_id(db, medicine_id)
-    if db_medicine:
-        if medicine_data.name is not None:
-            db_medicine.name = medicine_data.name
-        if medicine_data.description is not None:
-            db_medicine.description = medicine_data.description
-        if medicine_data.price is not None:
-            db_medicine.price = medicine_data.price
-        if medicine_data.discounted_price is not None:
-            db_medicine.discounted_price = medicine_data.discounted_price
-        if medicine_data.stock is not None:
-            db_medicine.stock = medicine_data.stock
-        if medicine_data.disease_id is not None:
-            db_medicine.disease_id = medicine_data.disease_id
-        if medicine_data.image_url is not None:
-            db_medicine.image_url = medicine_data.image_url
-        if medicine_data.is_freeship is not None:
-            db_medicine.is_freeship = medicine_data.is_freeship
-        if medicine_data.how_to_use is not None:
-            db_medicine.how_to_use = medicine_data.how_to_use  # Thêm trường how_to_use
+    try:
+        # Kiểm tra sự tồn tại của thuốc bằng get_medicine_by_id
+        existing_medicine = get_medicine_by_id(db, medicine_id)
+        if not existing_medicine:
+            logger.info(f"Medicine with ID {medicine_id} not found")
+            return None
+
+        # Lấy đối tượng Medicines để cập nhật
+        db_medicine = db.query(Medicines).filter(Medicines.medicine_id == medicine_id).first()
+        if not db_medicine:
+            logger.warning(f"Medicine with ID {medicine_id} not found in database")
+            return None
+
+        # Chuyển medicine_data thành dictionary
+        medicine_dict = medicine_data.dict(exclude_unset=True)
+
+        # Cập nhật các trường nếu chúng tồn tại trong dictionary
+        if "name" in medicine_dict:
+            db_medicine.name = medicine_dict["name"]
+        if "description" in medicine_dict:
+            db_medicine.description = medicine_dict["description"]
+        if "price" in medicine_dict:
+            db_medicine.price = medicine_dict["price"]
+        if "stock" in medicine_dict:
+            db_medicine.stock = medicine_dict["stock"]
+        if "image_url" in medicine_dict:
+            db_medicine.image_url = medicine_dict["image_url"]
+        if "how_to_use" in medicine_dict:
+            db_medicine.how_to_use = medicine_dict["how_to_use"]
+
         db.commit()
         db.refresh(db_medicine)
-    return db_medicine
+        logger.info(f"Medicine with ID {medicine_id} updated successfully")
+        return db_medicine
+    except Exception as e:
+        logger.error(f"Error updating medicine {medicine_id}: {str(e)}", exc_info=True)
+        raise Exception(f"Error updating medicine: {str(e)}")
 
 # Hàm xóa thuốc
 def delete_medicine(db: Session, medicine_id: int) -> Optional[Medicines]:

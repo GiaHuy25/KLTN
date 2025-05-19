@@ -104,6 +104,7 @@ async def login(user: UserLogin, db: Session = Depends(get_db)):
             raise HTTPException(status_code=401, detail="Invalid email or password")
         return {
             "user_id": result["user_id"],
+            "role": result["role"],
             "access_token": result["access_token"],
             "token_type": result["token_type"]
         }

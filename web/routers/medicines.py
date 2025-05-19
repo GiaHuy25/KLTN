@@ -10,15 +10,16 @@ from typing import List
 from torchvision import transforms
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import JWTError, jwt
-
-from models.models import User as UserModel, Medicines
+from sqlalchemy.exc import IntegrityError
+from models.models import User as UserModel, Disease
 from schemas.medicines import MedicineCreate, MedicineUpdate, Medicine, PaginatedMedicineResponse
 from Service.medicines import create_medicine, get_medicine_by_id, update_medicine, delete_medicine, get_paginated_medicines
 from config.db import get_db
 from utils.paginator import paginate_dataframe
+import logging
 
 router = APIRouter(prefix="/medicines", tags=["Medicines"])
-
+logger = logging.getLogger(__name__)
 load_dotenv()
 MODEL_PATH = os.getenv("MODEL_PATH")
 
@@ -97,16 +98,19 @@ async def update_medicine_endpoint(
     db: Session = Depends(get_db),
     current_admin: UserModel = Depends(get_current_admin)
 ):
-    """
-    Cập nhật thông tin của một thuốc dựa trên ID.
-    Yêu cầu đăng nhập và role admin.
-    """
     try:
+        logger.info(f"Updating medicine with ID {medicine_id} by admin {current_admin.email}")
         updated_medicine = update_medicine(db=db, medicine_id=medicine_id, medicine_data=medicine_data)
         if not updated_medicine:
+            logger.warning(f"Medicine with ID {medicine_id} not found")
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Thuốc không tồn tại")
+        logger.info(f"Medicine with ID {medicine_id} updated successfully")
         return updated_medicine
+    except IntegrityError as e:
+        logger.error(f"Database integrity error while updating medicine {medicine_id}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=400, detail="Dữ liệu không hợp lệ")
     except Exception as e:
+        logger.error(f"Error updating medicine {medicine_id}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Lỗi khi cập nhật thuốc: {str(e)}")
 
 @router.delete("/{medicine_id}", status_code=status.HTTP_200_OK, summary="Xóa thuốc theo ID")

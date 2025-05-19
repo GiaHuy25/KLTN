@@ -14,14 +14,18 @@ import base64
 from config.db import get_db
 from models.models import Disease as DiseaseModel, Medicines as MedicineModel, DiseaseMedicine
 
+# Cấu hình router và logging
 router = APIRouter(prefix="/diseases", tags=["Diseases"])
-
-# Load environment variables
-load_dotenv()
-MODEL_PATH = os.getenv("MODEL_PATH")
-
 logger = logging.getLogger(__name__)
 
+# Load biến môi trường
+load_dotenv()
+MODEL_PATH = os.getenv("MODEL_PATH")
+if not MODEL_PATH:
+    logger.error("MODEL_PATH environment variable not set")
+    raise RuntimeError("MODEL_PATH environment variable not set")
+
+# Định nghĩa danh sách lớp bệnh và ngưỡng tin cậy
 CLASS_NAMES = [
     'ALGAL_LEAF_SPOT',
     'ALLOCARIDARA_ATTACK',
@@ -31,122 +35,148 @@ CLASS_NAMES = [
     'LEAF_COLLETOTRICHUM',
     'LEAF_RHIZOCTONIA',
     'LEAF_SPOT',
+    'NO_OBJECT',
     'PHOMOPSIS_LEAF_SPOT',
     'PHYTOPHTHORA_LEAF_BLIGHT',
     'PHYTOPHTHORA_PALMIVORA'
 ]
 CONFIDENCE_THRESHOLD = 0.7
 
-# Global variable for the model
+# Biến toàn cục cho mô hình
 model = None
 
-# Custom EfficientNet model class
+# Định nghĩa class mô hình tùy chỉnh
 class CustomEfficientNet(nn.Module):
-    def __init__(self, num_classes=11):
+    def __init__(self, num_classes: int = len(CLASS_NAMES)):
         super(CustomEfficientNet, self).__init__()
-        self.model = models.efficientnet_b0(pretrained=True)
+        # Sử dụng EfficientNet-B0 làm backbone
+        self.model = models.efficientnet_b0(weights='EfficientNet_B0_Weights.IMAGENET1K_V1')
 
-        # Đóng băng các lớp đầu tiên
+        # Đóng băng các lớp đầu tiên (features.0, features.1, features.2)
         for name, param in self.model.named_parameters():
-            if 'features.0' in name or 'features.1' in name or 'features.2' in name:
+            if any(layer in name for layer in ['features.0', 'features.1', 'features.2']):
                 param.requires_grad = False
-        
-        # Thay thế phần classifier
+
+        # Thay thế classifier
         self.model.classifier = nn.Sequential(
             nn.Dropout(p=0.3, inplace=True),
-            nn.Linear(in_features=1280, out_features=512),
-            nn.ReLU(),
-            nn.Dropout(p=0.2),
-            nn.Linear(in_features=512, out_features=num_classes)
+            nn.Linear(in_features=1280, out_features=512, bias=True),
+            nn.ReLU(inplace=True),
+            nn.Dropout(p=0.2, inplace=True),
+            nn.Linear(in_features=512, out_features=num_classes, bias=True)
         )
 
-    def forward(self, x):
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.model(x)
 
-# Preprocess the image
-def preprocess_image(img: np.ndarray) -> torch.Tensor:
-    img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)  
-    img = Image.fromarray(img)  
+# Hàm tiền xử lý ảnh
+def preprocess_image(image: np.ndarray) -> torch.Tensor:
+    try:
+        # Kiểm tra xem ảnh có hợp lệ không
+        if image is None or len(image.shape) != 3 or image.shape[2] != 3:
+            raise ValueError("Invalid image: Expected a 3-channel color image")
 
-    transform = transforms.Compose([
-        transforms.Resize((256, 256)),       # Resize theo file train
-        transforms.ToTensor(),               # Chuyển đổi sang tensor
-        transforms.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])  # Chuẩn hóa
-    ])
-    tensor = transform(img).unsqueeze(0)        
-    return tensor
+        # Chuyển đổi từ BGR (OpenCV) sang RGB
+        image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        # Chuyển đổi từ numpy array sang PIL Image
+        pil_image = Image.fromarray(image_rgb)
 
-# Load model only once
+        # Định nghĩa pipeline transform (đồng bộ với huấn luyện)
+        transform = transforms.Compose([
+            transforms.Resize((256, 256), interpolation=transforms.InterpolationMode.BICUBIC),
+            transforms.ToTensor(),
+            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+        ])
+
+        # Áp dụng transform và thêm chiều batch
+        tensor = transform(pil_image).unsqueeze(0)
+        return tensor
+    except Exception as e:
+        logger.error(f"Error preprocessing image: {e}")
+        raise HTTPException(status_code=400, detail=f"Error preprocessing image: {str(e)}")
+
+# Hàm load mô hình
 def load_model():
     global model
     try:
+        # Kiểm tra file mô hình
         if not os.path.isfile(MODEL_PATH):
+            logger.error(f"Model file not found at {MODEL_PATH}")
             raise RuntimeError(f"Model file not found at {MODEL_PATH}")
 
-        # Tạo một mô hình mới từ CustomEfficientNet
+        # Khởi tạo mô hình
         model_instance = CustomEfficientNet(num_classes=len(CLASS_NAMES))
 
-        # Load mô hình từ file
+        # Load trọng số mô hình
         checkpoint = torch.load(MODEL_PATH, map_location=torch.device('cpu'))
 
-        # Nếu checkpoint là mô hình hoàn chỉnh
-        if isinstance(checkpoint, CustomEfficientNet):
-            model_instance = checkpoint
-        elif isinstance(checkpoint, dict) and "model" in checkpoint:
+        # Xử lý checkpoint
+        if isinstance(checkpoint, dict) and "model" in checkpoint:
             model_instance.load_state_dict(checkpoint["model"], strict=False)
         else:
             model_instance.load_state_dict(checkpoint, strict=False)
 
-        # Đặt mô hình ở chế độ eval
+        # Chuyển mô hình sang chế độ đánh giá
         model_instance.eval()
         model = model_instance
-        logger.info("Model loaded successfully.")
+        logger.info("Model loaded successfully")
+        return model
     except Exception as e:
         logger.error(f"Error loading model: {e}")
         raise RuntimeError(f"Error loading model: {e}")
 
-# Load model at startup
-load_model()
+# Load mô hình khi khởi động
+try:
+    load_model()
+except Exception as e:
+    logger.error(f"Failed to load model at startup: {e}")
+    raise RuntimeError(f"Failed to load model at startup: {e}")
 
-@router.post("/predict", response_model=Dict, summary="Predict disease from an uploaded image")
-async def predict_disease(
-    file: UploadFile = File(...),
-    db: Session = Depends(get_db)
-):
+# API dự đoán bệnh
+@router.post("/predict", response_model=Dict, summary="Dự đoán bệnh từ ảnh được tải lên")
+async def predict_disease(file: UploadFile = File(...), db: Session = Depends(get_db)):
     try:
         global model
         if model is None:
+            logger.error("Model not loaded")
             raise HTTPException(status_code=500, detail="Model not loaded")
 
-        # Read the uploaded image
+        # Đọc ảnh từ file tải lên
         contents = await file.read()
         nparray = np.frombuffer(contents, np.uint8)
         img = cv2.imdecode(nparray, cv2.IMREAD_COLOR)
 
         if img is None:
+            logger.error("Unable to decode image")
             raise HTTPException(status_code=400, detail="Unable to decode image")
 
-        # Preprocess the image
+        # Tiền xử lý ảnh
         input_tensor = preprocess_image(img)
 
-        # Make prediction
+        # Dự đoán
         model.eval()
         with torch.no_grad():
             output = model(input_tensor)
-            probabilities = torch.softmax(output[0], dim=0).numpy()
+            probabilities = torch.softmax(output[0], dim=0).cpu().numpy()
             predicted_class = np.argmax(probabilities)
             confidence = float(probabilities[predicted_class])
 
-        # Check confidence
+        # Kiểm tra ngưỡng tin cậy
         if confidence < CONFIDENCE_THRESHOLD:
-            raise HTTPException(status_code=400, detail="Disease cannot be identified from the image")
+            logger.warning(f"Confidence {confidence:.2f} below threshold {CONFIDENCE_THRESHOLD}")
+            raise HTTPException(status_code=400, detail="Confidence too low to identify disease")
 
+        # Lấy tên bệnh
         disease_name = CLASS_NAMES[predicted_class]
+        logger.info(f"Predicted disease: {disease_name} with confidence {confidence:.2f}")
+
+        # Truy vấn thông tin bệnh từ cơ sở dữ liệu
         disease = db.query(DiseaseModel).filter(DiseaseModel.name == disease_name).first()
         if not disease:
+            logger.error(f"Disease {disease_name} not found in database")
             raise HTTPException(status_code=404, detail="Disease information not found")
 
-        # Fetch medicines for the predicted disease
+        # Lấy danh sách thuốc liên quan
         medicines = (
             db.query(MedicineModel)
             .join(DiseaseMedicine, MedicineModel.medicine_id == DiseaseMedicine.medicine_id)
@@ -154,10 +184,10 @@ async def predict_disease(
             .all()
         )
 
-        # Process medicines data with Base64 images
+        # Xử lý dữ liệu thuốc và mã hóa ảnh Base64
         medicines_data = []
         BASE_MEDIA_PATH = "media/medicines/"
-        disease_folder = disease.name.replace(" ", "_").upper()  # Standardize disease name to ALGAL_LEAF_SPOT format
+        disease_folder = disease.name.replace(" ", "_").upper()
 
         for med in medicines:
             med_dict = {
@@ -167,28 +197,22 @@ async def predict_disease(
                 "how_to_use": med.how_to_use,
                 "price": float(med.price),
                 "stock": med.stock,
-                "image_url": med.image_url
+                "image_url": med.image_url,
+                "image_base64": None
             }
 
-            # Add Base64 image if available
+            # Mã hóa ảnh Base64 nếu tồn tại
             if os.path.isdir(os.path.join(BASE_MEDIA_PATH, disease_folder)):
-                image_path_jpg = os.path.join(BASE_MEDIA_PATH, disease_folder, f"{med.image_url}.jpg")
-                image_path_png = os.path.join(BASE_MEDIA_PATH, disease_folder, f"{med.image_url}.png")
-
-                # Check for .jpg or .png file
-                if os.path.isfile(image_path_jpg):
-                    with open(image_path_jpg, "rb") as image_file:
-                        med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
-                elif os.path.isfile(image_path_png):
-                    with open(image_path_png, "rb") as image_file:
-                        med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
-                else:
-                    med_dict["image_base64"] = None
-            else:
-                med_dict["image_base64"] = None
+                for ext in ['jpg', 'png']:
+                    image_path = os.path.join(BASE_MEDIA_PATH, disease_folder, f"{med.image_url}.{ext}")
+                    if os.path.isfile(image_path):
+                        with open(image_path, "rb") as image_file:
+                            med_dict["image_base64"] = base64.b64encode(image_file.read()).decode("utf-8")
+                        break
 
             medicines_data.append(med_dict)
 
+        # Trả về kết quả
         return {
             "disease_name": disease.name,
             "description": disease.description,
@@ -201,5 +225,5 @@ async def predict_disease(
     except HTTPException as e:
         raise e
     except Exception as e:
-        logger.error(f"Unexpected error in /predict: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Unexpected error in /predict: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
