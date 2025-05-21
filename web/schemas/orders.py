@@ -39,6 +39,7 @@ class Order(BaseModel):
             datetime: lambda v: v.isoformat() if v else None
         }
 class OrderUpdate(BaseModel):
+    user_id: Optional[int] = Field(None, description="ID của người dùng")
     status: Optional[str] = Field(None, description="Trạng thái của đơn hàng")
     shipping_address: Optional[str] = Field(None, description="Địa chỉ giao hàng")
     delivery_date: Optional[datetime] = Field(None, description="Ngày giao hàng dự kiến")

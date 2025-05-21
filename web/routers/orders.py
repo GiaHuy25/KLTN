@@ -46,6 +46,30 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
         raise credentials_exception
     return user
 
+async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
+    """
+    Xác thực token và kiểm tra user có role là admin không.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.query(UserModel).filter(UserModel.email == email).first()
+    if user is None:
+        raise credentials_exception
+    if user.role != "admin":
+        raise HTTPException(status_code=403, detail="Admin access required")
+    return user
+
+
 @router.get("/", response_model=List[Dict[str, Any]], summary="Get user's orders")
 async def get_orders(
     db: Session = Depends(get_db),
@@ -136,14 +160,14 @@ async def update_order(
     order_id: int,
     order_data: OrderUpdate,
     db: Session = Depends(get_db),
-    current_user: UserModel = Depends(get_current_user)
+    current_admin: UserModel = Depends(get_current_admin)
 ):
     """
-    Cập nhật thông tin đơn hàng.
+    Cập nhật thông tin đơn hàng (chỉ dành cho admin).
     """
     order = order_controller.get_order_by_id(db, order_id=order_id)
-    if not order or order.user_id != current_user.user_id:
-        raise HTTPException(status_code=404, detail="Order not found or not authorized")
+    if not order:
+        raise HTTPException(status_code=404, detail="Order not found")
 
     try:
         updated_order = order_controller.update_order(db, order_id=order_id, order_data=order_data)
@@ -158,7 +182,7 @@ async def delete_order(
     current_user: UserModel = Depends(get_current_user)
 ):
     """
-    Xóa đơn hàng theo ID.
+    Xóa đơn hàng theo ID (chỉ người dùng sở hữu đơn hàng, trạng thái phải là pending).
     """
     order = order_controller.get_order_by_id(db, order_id=order_id)
     if not order or order.user_id != current_user.user_id:
@@ -168,4 +192,4 @@ async def delete_order(
         order_controller.delete_order(db, order_id=order_id)
         return {"message": "Order deleted successfully"}
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Error deleting order: {str(e)}")
+        raise HTTPException(status_code=400, detail=f"Error deleting order: {str(e)}")

@@ -69,7 +69,7 @@ def get_orders_by_user_id(db: Session, user_id: int) -> List[Orders]:
     return db.query(Orders).filter(Orders.user_id == user_id).all()
 
 def update_order(db: Session, order_id: int, order_data: OrderUpdate) -> Orders:
-    db_order = db.query(Orders).filter(Orders.id == order_id).first()
+    db_order = db.query(Orders).filter(Orders.order_id == order_id).first()
     if not db_order:
         raise HTTPException(status_code=404, detail="Order not found")
 
@@ -90,6 +90,8 @@ def delete_order(db: Session, order_id: int) -> None:
     db_order = db.query(Orders).filter(Orders.order_id == order_id).first()
     if not db_order:
         raise HTTPException(status_code=404, detail="Order not found")
+    if db_order.status != "pending":
+        raise HTTPException(status_code=400, detail="Order can only be deleted if status is pending")
 
     db.query(OrderItems).filter(OrderItems.order_id == order_id).delete()
     db.delete(db_order)
