@@ -19,6 +19,27 @@ security = HTTPBearer()
 SECRET_KEY = "your-secret-key"  # Thay bằng secret key thực tế
 ALGORITHM = "HS256"
 
+async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)) -> UserModel:
+    """
+    Xác thực token và lấy thông tin user hiện tại.
+    """
+    credentials_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    try:
+        payload = jwt.decode(credentials.credentials, SECRET_KEY, algorithms=[ALGORITHM])
+        email: str = payload.get("sub")
+        if email is None:
+            raise credentials_exception
+    except JWTError:
+        raise credentials_exception
+    user = db.query(UserModel).filter(UserModel.email == email).first()
+    if user is None:
+        raise credentials_exception
+    return user
+
 async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(security), db: Session = Depends(get_db)):
     """
     Xác thực token và kiểm tra user có role là admin không.
@@ -63,12 +84,16 @@ async def read_users(
 async def read_user(
     id: int,
     db: Session = Depends(get_db),
-    current_admin: UserModel = Depends(get_current_admin)
+    current_user: UserModel = Depends(get_current_user)
 ):
     """
     Lấy thông tin user theo ID.
-    Yêu cầu quyền admin.
+    - Người dùng thường chỉ có thể xem thông tin của chính họ.
+    - Admin có thể xem thông tin của bất kỳ user nào.
     """
+    if id != current_user.user_id and current_user.role != "admin":
+        raise HTTPException(status_code=403, detail="Not authorized to access this user's information")
+
     try:
         user = get_user(db, user_id=id)
         if user is None:
