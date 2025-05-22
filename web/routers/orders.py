@@ -6,12 +6,16 @@ from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from config.db import get_db
 from models.models import User as UserModel,  Medicines as MedicineModel
-from schemas.orders import Order, OrderCreate, OrderUpdate
+from schemas.orders import Order, OrderCreate, OrderUpdate, OrderWithUser
 from schemas.order_details import OrderDetail
 from schemas.medicines import Medicine as MedicineSchema
 from Service import orders as order_controller
 from Service import order_details as order_detail_controller
 from Service import medicines as medicine_controller
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 router = APIRouter(
     prefix="/orders",
@@ -69,6 +73,15 @@ async def get_current_admin(credentials: HTTPAuthorizationCredentials = Depends(
         raise HTTPException(status_code=403, detail="Admin access required")
     return user
 
+@router.get("/all", response_model=List[OrderWithUser], summary="Get all orders (Admin only)")
+async def get_all_orders(
+    db: Session = Depends(get_db),
+    current_admin: UserModel = Depends(get_current_admin)
+):
+    logger.info(f"get_all_orders called by {current_admin.email}")
+    orders = order_controller.get_all_orders(db)
+    logger.info(f"Retrieved {len(orders)} orders")
+    return orders
 
 @router.get("/", response_model=List[Dict[str, Any]], summary="Get user's orders")
 async def get_orders(
@@ -116,7 +129,7 @@ async def get_order(
     Lấy chi tiết đơn hàng theo ID.
     """
     order = order_controller.get_order_by_id(db, order_id=order_id)
-    if not order or order.user_id != current_user.user_id:
+    if not order or order.user_id != current_user.user_id and current_user.role != "admin":
         raise HTTPException(status_code=404, detail="Order not found or not authorized")
 
     order_details = order_detail_controller.get_order_details_by_order_id(db, order_id=order_id)
@@ -140,6 +153,8 @@ async def get_order(
         "Shipping address": order.shipping_address,
         "details": details_with_medicines
     }
+
+
 
 @router.post("/", response_model=Order, summary="Create a new order")
 async def create_order(

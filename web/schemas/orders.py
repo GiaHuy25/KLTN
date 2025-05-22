@@ -44,3 +44,21 @@ class OrderUpdate(BaseModel):
     shipping_address: Optional[str] = Field(None, description="Địa chỉ giao hàng")
     delivery_date: Optional[datetime] = Field(None, description="Ngày giao hàng dự kiến")
     total_price: Optional[Decimal] = Field(None, gt=0, decimal_places=2, description="Tổng giá trị đơn hàng")
+
+
+class OrderWithUser(BaseModel):
+    order_id: int
+    user_id: int
+    username: str = Field(..., description="Tên người dùng")
+    address: Optional[str] = Field(None, description="Địa chỉ người dùng")
+    total_price: Decimal
+    status: str
+    shipping_address: Optional[str] = None
+    delivery_date: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+        json_encoders = {
+            datetime: lambda v: v.isoformat() if v else None
+        }

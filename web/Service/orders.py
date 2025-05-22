@@ -1,10 +1,14 @@
 from sqlalchemy.orm import Session
-from typing import List, Optional
+from typing import List, Optional, Dict
 from fastapi import HTTPException
-from models.models import Orders, Medicines, OrderItems
+from models.models import Orders, Medicines, OrderItems, User as UserModel
 from schemas.orders import OrderCreate, OrderUpdate
 from datetime import datetime
 from decimal import Decimal
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 def create_order(db: Session, order_data: OrderCreate) -> Orders:
     try:
@@ -67,6 +71,40 @@ def get_order_by_id(db: Session, order_id: int) -> Orders:
 
 def get_orders_by_user_id(db: Session, user_id: int) -> List[Orders]:
     return db.query(Orders).filter(Orders.user_id == user_id).all()
+
+def get_all_orders(db: Session) -> List[Dict]:
+    logger.info("Starting get_all_orders")
+    orders = (
+        db.query(Orders, UserModel)
+        .outerjoin(UserModel, Orders.user_id == UserModel.user_id)
+        .all()
+    )
+    logger.info(f"Retrieved {len(orders)} orders from database")
+
+    if not orders:
+        logger.info("No orders found, returning empty list")
+        return []
+
+    result = []
+    for order, user in orders:
+        username = user.username if user else "Unknown User"
+        address = user.address if user else None
+        logger.debug(f"Processing order_id={order.order_id}, username={username}")
+
+        result.append({
+            "order_id": order.order_id,
+            "user_id": order.user_id,
+            "username": username,
+            "address": address,
+            "total_price": Decimal(str(order.total_price)),
+            "status": order.status,
+            "shipping_address": order.shipping_address,
+            "delivery_date": order.delivery_date,
+            "created_at": order.created_at
+        })
+
+    logger.info(f"Returning {len(result)} orders")
+    return result
 
 def update_order(db: Session, order_id: int, order_data: OrderUpdate) -> Orders:
     db_order = db.query(Orders).filter(Orders.order_id == order_id).first()
