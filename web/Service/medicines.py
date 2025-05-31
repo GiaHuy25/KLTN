@@ -9,7 +9,7 @@ import logging
 
 logger = logging.getLogger(__name__)
 # Hàm xử lý logic lấy danh sách thuốc với phân trang và ảnh Base64
-def get_paginated_medicines(db: Session, page: int = 1, per_page: int = 10) -> Dict[str, Any]:
+def get_paginated_medicines(db: Session, page: int = 1, per_page: int = 9) -> Dict[str, Any]:
     try:
         # Tính vị trí bắt đầu (skip)
         skip = (page - 1) * per_page

@@ -70,7 +70,7 @@ async def create_medicine_endpoint(
         raise HTTPException(status_code=500, detail=f"Lỗi khi tạo thuốc: {str(e)}")
 
 @router.get("/", response_model=PaginatedMedicineResponse, summary="Lấy danh sách thuốc với hình ảnh dạng Base64")
-async def get_medicines_endpoint(page: int = 1, per_page: int = 10, db: Session = Depends(get_db)):
+async def get_medicines_endpoint(page: int = 1, per_page: int = 9, db: Session = Depends(get_db)):
     """
     Lấy danh sách thuốc với hình ảnh dạng Base64.
     Không yêu cầu đăng nhập.
